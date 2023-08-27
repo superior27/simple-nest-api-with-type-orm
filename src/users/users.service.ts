@@ -1,25 +1,43 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { User } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { Repository } from 'typeorm';
+import { User } from './entities/user.entity';
+import { InjectRepository } from '@nestjs/typeorm';
 
 
 @Injectable()
 export class UsersService {
 
+  constructor(
+    @InjectRepository(User)
+    private user: Repository<User>
+  ){}
 
   async create(createUserDto: CreateUserDto) : Promise<User> 
   {
-    createUserDto.password = await bcrypt.hash(createUserDto.password, 10);
-    return await this.prisma.user.create({
-      data: createUserDto
+    const hasEmail = await this.user.exist({
+      where: {
+        email: createUserDto.email
+      }
     });
+
+    if(hasEmail)
+    {
+      throw new BadRequestException('This e-mail has already been registered!');
+    }
+
+    const user = this.user.create(createUserDto);
+    createUserDto.password = await bcrypt.hash(createUserDto.password, 10);
+    
+    return await this.user.save(user);
   }
 
   async findAll(page:number = 1) : Promise <User[]|null> 
   {
-    return await this.prisma.user.findMany({
+
+    return await this.user.find({
       take : 10,
       skip : 10 * (page-1)
     });
@@ -28,7 +46,7 @@ export class UsersService {
 
   async findOne(uuid: string) : Promise <User|null>
   {
-    return await this.prisma.user.findUnique({
+    return await this.user.findOne({
       where: {
         uuid
       }
@@ -38,6 +56,7 @@ export class UsersService {
   async update(uuid: string, updateUserDto: UpdateUserDto) : Promise <User|null> 
   {
     let user:User|null;
+
     if(updateUserDto.password)
     {
       updateUserDto.password = await bcrypt.hash(updateUserDto.password, 10);
@@ -45,26 +64,15 @@ export class UsersService {
     
     
     try {
-      user = await this.prisma.user.update({
-        data: {
-          name: updateUserDto.name,
-          email: updateUserDto.email,
-          password: updateUserDto.password,
-          role: updateUserDto.role,
-          updated_at: (new Date())
-        },
-        where: {
-          uuid
-        }
-
-      });
+      await this.user.update({uuid: uuid}, updateUserDto);
       
     } catch (error) {
       user = null;
       console.log(error);
       
     }
-    return user;
+    
+    return await this.findOne(uuid);
     
     
   }
@@ -75,11 +83,7 @@ export class UsersService {
     
     try 
     {
-      await this.prisma.user.delete({
-        where:{
-          uuid
-        }
-      });
+      await this.user.delete({uuid: uuid});
 
       result = true;
       

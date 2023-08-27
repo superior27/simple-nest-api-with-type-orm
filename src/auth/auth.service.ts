@@ -1,13 +1,15 @@
 import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AuthLoginDto } from './dto/auth-login.dto';
-import { User } from '@prisma/client';
 import { AuthForgetDto } from './dto/auth-forget.dto';
 import { AuthResetDto } from './dto/auth-reset.dto';
 import { AuthRegisterDto } from './dto/auth-register.dto';
 import { UsersService } from 'src/users/users.service';
 import * as bcrypt from 'bcrypt';
 import { MailerService } from '@nestjs-modules/mailer';
+import { User } from 'src/users/entities/user.entity';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 
 @Injectable()
 export class AuthService {
@@ -19,6 +21,9 @@ export class AuthService {
         private readonly jwtService: JwtService,
         private readonly userService: UsersService,
         private readonly mailer: MailerService,
+
+        @InjectRepository(User)
+        private readonly user: Repository<User>,
     )
     {
 
@@ -75,7 +80,7 @@ export class AuthService {
 
     public async login(dto: AuthLoginDto) : Promise<{}>
     {
-        const user = await this.prisma.user.findFirst({
+        const user = await this.user.findOne({
             where: {
                 email: dto.email
             }
@@ -97,7 +102,7 @@ export class AuthService {
 
     public async forget(dto: AuthForgetDto) : Promise<User>
     {
-        const user = await this.prisma.user.findFirst({
+        const user = await this.user.findOne({
             where: {
                 email: dto.email
             }
@@ -128,16 +133,12 @@ export class AuthService {
         try {
             const data = this.checkToken(dto.token);
             const password = await bcrypt.hash(dto.password, 10);
-            const user = await this.prisma.user.update({
+            await this.user.update({uuid: data.uuid},dto);
+            const user = await this.user.findOne({
                 where:{
                     uuid: data.uuid
-                },
-                data:{
-                    password: password,
-                    updated_at: new Date()
                 }
             });
-
             return this.createToken(user);
         } catch (error) {
             throw new UnauthorizedException('Token is invalid!');
